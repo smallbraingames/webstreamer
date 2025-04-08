@@ -1,19 +1,17 @@
+mod browser_capture;
 mod env;
-use chromiumoxide::{Browser, BrowserConfig, cdp::browser_protocol::log::EventEntryAdded};
-use futures_util::StreamExt;
+use browser_capture::CapturedBrowser;
 use std::{
     fs::File,
     io::Write,
-    net::SocketAddr,
-    path::Path,
-    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
-use tokio::{net::TcpListener, spawn};
-use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tracing::{Level, debug, info, warn};
+use tokio::{spawn, sync::mpsc};
+use tokio_tungstenite::tungstenite::Bytes;
+use tracing::{Level, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use ws::get_ws_stream;
 
 const WS_PORT: u16 = 8080;
 
@@ -21,81 +19,29 @@ const WS_PORT: u16 = 8080;
 async fn main() {
     setup_tracing();
 
-    let file_path = "recording.webm";
+    let (stream_tx, stream_rx) = mpsc::channel::<Bytes>(10);
     spawn(async move {
-        run_websocket_server(file_path).await;
+        get_ws_stream(WS_PORT, stream_tx).await;
     });
 
-    let extension_path = Path::new("./extension").canonicalize().unwrap();
-    let extension_id = include_str!("../extension/id.txt").trim();
-    let (mut browser, mut handler) = Browser::launch(
-        BrowserConfig::builder()
-            .with_head()
-            .extension(extension_path.to_str().unwrap())
-            .arg("--autoplay-policy=no-user-gesture-required")
-            .arg("--auto-accept-this-tab-capture")
-            .arg("--no-sandbox")
-            .arg("--disable-setuid-sandbox")
-            .arg(format!(
-                "--disable-extensions-except={}",
-                extension_path.to_str().unwrap()
-            ))
-            .arg("--headless=new")
-            .arg(format!("--allowlisted-extension-id={}", extension_id))
-            .disable_default_args()
-            .window_size(500, 500)
-            .build()
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+    let mut browser = CapturedBrowser::new((500, 500)).await;
+    browser
+        .start_capture("https://www.youtube.com/watch?v=3Tf_Mhh61n0", WS_PORT)
+        .await;
 
-    let handle = spawn(async move {
-        while let Some(h) = handler.next().await {
-            if h.is_err() {
-                warn!("invalid message in handler: {:?}", h);
-            }
+    // Process incoming video data
+    let mut stream_rx = stream_rx;
+    spawn(async move {
+        let mut file = File::create("output.webm").unwrap();
+        info!("Created output file");
+
+        while let Some(data) = stream_rx.recv().await {
+            file.write_all(&data).unwrap();
+            info!("Wrote {} bytes to file", data.len());
         }
     });
-
-    browser.clear_cookies().await.unwrap();
-
-    let page = browser
-        .new_page("https://www.youtube.com/watch?v=3Tf_Mhh61n0")
-        .await
-        .unwrap();
-    page.wait_for_navigation_response().await.unwrap();
-
-    let mut events = page.event_listener::<EventEntryAdded>().await.unwrap();
-    spawn(async move {
-        while let Some(event) = events.next().await {
-            debug!(
-                "brower log: [{:?}] {:?}",
-                event.entry.level, event.entry.text
-            );
-        }
-    });
-
-    page.evaluate(format!(
-        r#"
-        window.postMessage({{
-            type: 'CAPTURE_COMMAND',
-            command: 'start',
-            port: {}
-        }}, '*');
-        console.log("[rs] sent start capture message");
-        "#,
-        WS_PORT
-    ))
-    .await
-    .unwrap();
-
-    info!("sent start message");
 
     thread::sleep(Duration::from_secs(30));
-
-    browser.close().await.unwrap();
-    handle.await.unwrap();
 }
 
 fn setup_tracing() {
@@ -114,55 +60,42 @@ fn setup_tracing() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
-async fn run_websocket_server(file_path: &str) {
-    let file = Arc::new(Mutex::new(File::create(file_path).unwrap()));
+mod ws {
+    use futures_util::StreamExt;
+    use std::net::SocketAddr;
+    use tokio::{net::TcpListener, sync::mpsc};
+    use tokio_tungstenite::{
+        accept_async,
+        tungstenite::{Bytes, Message},
+    };
+    use tracing::info;
 
-    let addr = format!("0.0.0.0:{}", WS_PORT)
-        .parse::<SocketAddr>()
-        .unwrap();
-    let listener = TcpListener::bind(&addr).await.unwrap();
-    info!("ws server listening on: {}", addr);
-
-    if let Ok((stream, _)) = listener.accept().await {
-        info!("new ws connection");
-
-        let file_clone = file.clone();
-
-        if let Ok(ws_stream) = accept_async(stream).await {
-            let (ws_sender, mut ws_receiver) = ws_stream.split();
-
-            tokio::spawn(async move {
-                while let Some(msg) = ws_receiver.next().await {
-                    match msg {
-                        Ok(Message::Binary(data)) => {
-                            info!("got data");
-                            if let Ok(mut file) = file_clone.lock() {
-                                file.write_all(&data).unwrap();
-                            }
-                        }
-                        Ok(Message::Text(text)) => {
-                            info!("ws received: {}", text);
-                        }
-                        Ok(Message::Close(_)) => {
-                            println!("ws connection closed");
-                            break;
-                        }
-                        Err(e) => {
-                            println!("ws error: {}", e);
-                            break;
-                        }
-                        _ => {}
-                    }
+    pub async fn get_ws_stream(port: u16, stream_tx: mpsc::Sender<Bytes>) {
+        let addr = format!("0.0.0.0:{}", port).parse::<SocketAddr>().unwrap();
+        let listener = TcpListener::bind(&addr).await.unwrap();
+        info!("ws listening on: {}", addr);
+        let (stream, _) = listener.accept().await.unwrap();
+        let ws_stream = accept_async(stream).await.unwrap();
+        let (_, mut ws_receiver) = ws_stream.split();
+        info!("ws connection established");
+        while let Some(msg) = ws_receiver.next().await {
+            match msg {
+                Ok(Message::Binary(data)) => {
+                    stream_tx.send(data).await.unwrap();
                 }
-            });
-
-            tokio::spawn(async move {
-                // while let Some(msg) = rx.recv().await {
-                //     if ws_sender.send(msg).await.is_err() {
-                //         break;
-                //     }
-                // }
-            });
+                Ok(Message::Text(text)) => {
+                    info!("ws received: {}", text);
+                }
+                Ok(Message::Close(_)) => {
+                    println!("ws connection closed");
+                    break;
+                }
+                Err(e) => {
+                    println!("ws error: {}", e);
+                    break;
+                }
+                _ => {}
+            }
         }
     }
 }

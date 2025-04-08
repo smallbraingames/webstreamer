@@ -3,6 +3,11 @@ console.log("read extension started");
 window.addEventListener("message", async (event) => {
   if (event.source !== window) return;
   if (event.data.type === "CAPTURE_COMMAND") {
+    if (event.data.command === "open-popup") {
+      chrome.runtime.sendMessage({
+        command: "open-popup",
+      });
+    }
     if (event.data.command === "start") {
       const client = new WebSocket(`ws://localhost:${event.data.port}`, []);
 
@@ -87,18 +92,6 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.status === "started") {
-    window.postMessage(
-      {
-        type: "CAPTURE_STATUS",
-        status: "started",
-      },
-      "*",
-    );
-  }
-});
-
 window.postMessage(
   {
     type: "CONTENT_READY",
@@ -106,4 +99,4 @@ window.postMessage(
   "*",
 );
 
-console.log("sent content ready");
+console.log("ready");

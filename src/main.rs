@@ -29,15 +29,23 @@ async fn main() {
     });
 
     let extension_path = Path::new("./extension").canonicalize().unwrap();
+    let extension_id = include_str!("../extension/id.txt").trim();
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .with_head()
             .extension(extension_path.to_str().unwrap())
             .disable_default_args()
-            .headless_mode(HeadlessMode::New)
+            .headless_mode(HeadlessMode::False)
             .arg("--autoplay-policy=no-user-gesture-required")
             .arg("--auto-accept-this-tab-capture")
-            .window_size(1920, 1080)
+            .arg("--no-sandbox")
+            .arg("--disable-setuid-sandbox")
+            .arg(format!(
+                "--disable-extensions-except={}",
+                extension_path.to_str().unwrap()
+            ))
+            .arg(format!("--allowlisted-extension-id={}", extension_id))
+            .window_size(500, 500)
             .build()
             .unwrap(),
     )
@@ -52,12 +60,9 @@ async fn main() {
         }
     });
 
-    let extension_id = "fnlggohdgbdagbaifmomnkffednjnklg";
-
     browser.clear_cookies().await.unwrap();
 
     let page = browser.new_page("https://youtube.com").await.unwrap();
-
     page.wait_for_navigation_response().await.unwrap();
 
     let mut events = page.event_listener::<EventEntryAdded>().await.unwrap();
@@ -70,48 +75,23 @@ async fn main() {
         }
     });
 
-    // Wait 10 seconds before starting the capture
-    sleep(Duration::from_secs(10)).await;
-    info!("Waited 10 seconds, now starting capture");
-
-    // Simulate a click somewhere on the page - center of the window
     page.evaluate(format!(
         r#"
-        (async () => {{
-
-
-            // Now start the capture
-            window.postMessage({{
-                type: 'CAPTURE_COMMAND',
-                command: 'start',
-                port: {}
-            }}, '*');
-            console.log("Sent start capture message");
-        }})();
+        window.postMessage({{
+            type: 'CAPTURE_COMMAND',
+            command: 'start',
+            port: {}
+        }}, '*');
+        console.log("[rs] sent start capture message");
         "#,
         WS_PORT
     ))
     .await
     .unwrap();
 
-    // Short pause to ensure interactions register
-    thread::sleep(Duration::from_secs(1));
-
     info!("sent start message");
 
-    // Wait a moment for the page to fully load and any initial logs to appear
     thread::sleep(Duration::from_secs(30));
-
-    // page.evaluate(
-    //     r#"
-    //         window.postMessage({
-    //             type: 'CAPTURE_COMMAND',
-    //             command: 'stop'
-    //         }, '*');
-    //         "#,
-    // )
-    // .await
-    // .unwrap();
 
     browser.close().await.unwrap();
     handle.await.unwrap();
@@ -125,8 +105,8 @@ fn setup_tracing() {
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(filter)
         .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
+        .with_thread_ids(false)
+        .with_thread_names(false)
         .pretty()
         .finish();
 

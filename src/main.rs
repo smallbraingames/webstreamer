@@ -1,7 +1,5 @@
 mod env;
-use chromiumoxide::{
-    Browser, BrowserConfig, browser::HeadlessMode, cdp::browser_protocol::log::EventEntryAdded,
-};
+use chromiumoxide::{Browser, BrowserConfig, cdp::browser_protocol::log::EventEntryAdded};
 use futures_util::StreamExt;
 use std::{
     fs::File,
@@ -12,7 +10,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::{net::TcpListener, spawn, time::sleep};
+use tokio::{net::TcpListener, spawn};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{Level, debug, info, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -34,8 +32,6 @@ async fn main() {
         BrowserConfig::builder()
             .with_head()
             .extension(extension_path.to_str().unwrap())
-            .disable_default_args()
-            .headless_mode(HeadlessMode::False)
             .arg("--autoplay-policy=no-user-gesture-required")
             .arg("--auto-accept-this-tab-capture")
             .arg("--no-sandbox")
@@ -44,7 +40,9 @@ async fn main() {
                 "--disable-extensions-except={}",
                 extension_path.to_str().unwrap()
             ))
+            .arg("--headless=new")
             .arg(format!("--allowlisted-extension-id={}", extension_id))
+            .disable_default_args()
             .window_size(500, 500)
             .build()
             .unwrap(),
@@ -62,7 +60,10 @@ async fn main() {
 
     browser.clear_cookies().await.unwrap();
 
-    let page = browser.new_page("https://youtube.com").await.unwrap();
+    let page = browser
+        .new_page("https://www.youtube.com/watch?v=3Tf_Mhh61n0")
+        .await
+        .unwrap();
     page.wait_for_navigation_response().await.unwrap();
 
     let mut events = page.event_listener::<EventEntryAdded>().await.unwrap();
@@ -128,7 +129,7 @@ async fn run_websocket_server(file_path: &str) {
         let file_clone = file.clone();
 
         if let Ok(ws_stream) = accept_async(stream).await {
-            let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+            let (ws_sender, mut ws_receiver) = ws_stream.split();
 
             tokio::spawn(async move {
                 while let Some(msg) = ws_receiver.next().await {

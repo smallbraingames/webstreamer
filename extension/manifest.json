@@ -7,10 +7,6 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "action": {
-    "default_title": "Capture Tab",
-    "default_popup": "popup.html"
-  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

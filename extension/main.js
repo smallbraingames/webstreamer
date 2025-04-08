@@ -84,7 +84,7 @@ window.addEventListener("message", async (event) => {
         if (client.readyState === WebSocket.OPEN) client.close();
       };
 
-      recorder.start(10);
+      recorder.start(20);
 
       console.log(recorder.state);
       console.log("started recorder");

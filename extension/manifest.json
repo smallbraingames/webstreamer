@@ -1,0 +1,30 @@
+{
+  "name": "Capture",
+  "version": "0.0.19",
+  "key": "fnlggohdgbdagbaifmomnkffednjnklg",
+  "manifest_version": 3,
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Capture Tab",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["main.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "tabs",
+    "tabCapture",
+    "storage",
+    "scripting",
+    "capture",
+    "activeTab"
+  ],
+  "host_permissions": ["*://*/*", "<all_urls>", "https://*/*", "http://*/*"]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Capture",
+  "version": "0.0.19",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo+Ib61X6ZWSp6P/0/P5Dr+6H1SY/R4M8jRUyDyTecBe0RtSrScqIrWR4bmcO1GhFKlX0uSsiwGspVI7R5bR+QvD1080qV0ZGWGfR7LFZPFjYRT+QLrlZSU+K7UxWt38dgXHq44ytPnWZ0uWtLVQHEzpo+k1dM9PrXbqpf4uPZpryc2LYYKguIP227zIEyfXwnJAfnQo82S3dET0AmtCQRiQyWnoCOp5ozFmN0ceaN/S+Zu6oXq9m0KULodRYLwdwLRyF5wj8Q6CjZxmnHQZGxav2eoCut9al3mE4xJnU0pWB9Q4NJBGxmvFzfSnNmMcLJaExrasi7AqhDS6k5JZ7qQIDAQAB",
+  "manifest_version": 3,
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["main.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "tabs",
+    "tabCapture",
+    "storage",
+    "scripting",
+    "capture",
+    "activeTab"
+  ],
+  "host_permissions": ["*://*/*", "<all_urls>", "https://*/*", "http://*/*"]
+}

@@ -2,14 +2,14 @@ mod browser_capture;
 mod env;
 use browser_capture::CapturedBrowser;
 use std::{
-    fs::File,
-    io::Write,
+    io::{BufRead, BufReader, Write},
+    process::{Command, Stdio},
     thread,
     time::Duration,
 };
 use tokio::{spawn, sync::mpsc};
 use tokio_tungstenite::tungstenite::Bytes;
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use ws::get_ws_stream;
 
@@ -24,24 +24,75 @@ async fn main() {
         get_ws_stream(WS_PORT, stream_tx).await;
     });
 
-    let mut browser = CapturedBrowser::new((500, 500)).await;
+    let mut browser = CapturedBrowser::new((1280, 720)).await;
     browser
-        .start_capture("https://www.youtube.com/watch?v=3Tf_Mhh61n0", WS_PORT)
+        .start_capture("https://www.dubs.toys", WS_PORT)
         .await;
 
-    // Process incoming video data
     let mut stream_rx = stream_rx;
     spawn(async move {
-        let mut file = File::create("output.webm").unwrap();
-        info!("Created output file");
+        info!("starting ffmpeg process");
+        let twitch_rmtp_url = env!("TWITCH_RMTP_URL");
+        let mut ffmpeg = Command::new("ffmpeg")
+            .args([
+                "-i",
+                "-",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-b:v",
+                "3000k",
+                "-maxrate",
+                "3000k",
+                "-bufsize",
+                "6000k",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "30",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-ar",
+                "44100",
+                "-f",
+                "flv",
+                &twitch_rmtp_url,
+            ])
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let mut stdin = ffmpeg.stdin.take().unwrap();
+
+        let stderr = ffmpeg.stderr.take().unwrap();
+
+        spawn(async move {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => info!("ffmpeg: {}", line),
+                    Err(e) => warn!("Error reading ffmpeg stderr: {}", e),
+                }
+            }
+        });
 
         while let Some(data) = stream_rx.recv().await {
-            file.write_all(&data).unwrap();
-            info!("Wrote {} bytes to file", data.len());
+            stdin.write_all(&data).unwrap();
+        }
+        drop(stdin);
+        match ffmpeg.wait() {
+            Ok(status) => info!("ffmpeg process exited with status: {}", status),
+            Err(e) => warn!("failed to wait for ffmpeg process: {}", e),
         }
     });
 
-    thread::sleep(Duration::from_secs(30));
+    thread::sleep(Duration::from_secs(300));
 }
 
 fn setup_tracing() {
@@ -81,6 +132,7 @@ mod ws {
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
+                    info!("recv data");
                     stream_tx.send(data).await.unwrap();
                 }
                 Ok(Message::Text(text)) => {

@@ -1,5 +1,32 @@
 console.log("read extension started");
 
+const injectFrameAnimation = () => {
+  const animDiv = document.createElement("div");
+  Object.assign(animDiv.style, {
+    position: "fixed",
+    width: "1px",
+    height: "1px",
+    bottom: "0px",
+    right: "0px",
+    backgroundColor: "transparent",
+    zIndex: "-9999",
+    opacity: "0.01",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(animDiv);
+  let x = 0;
+  const animate = () => {
+    x = (x + 1) % 10;
+    animDiv.style.transform = `translateX(${x}px)`;
+    requestAnimationFrame(animate);
+  };
+  animate();
+  return animDiv;
+};
+
+// Force rerenders
+const frameForcer = injectFrameAnimation();
+
 window.addEventListener("message", async (event) => {
   if (event.source !== window) return;
   if (event.data.type === "CAPTURE_COMMAND") {
@@ -64,9 +91,9 @@ window.addEventListener("message", async (event) => {
       console.log("got recorder", recorder);
 
       recorder.ondataavailable = async (e) => {
+        console.log("da");
         if (!e.data.size) return;
         const buffer = await e.data.arrayBuffer();
-        console.log(buffer);
         client.send(buffer);
       };
 
@@ -84,7 +111,7 @@ window.addEventListener("message", async (event) => {
         if (client.readyState === WebSocket.OPEN) client.close();
       };
 
-      recorder.start(20);
+      recorder.start(41);
 
       console.log(recorder.state);
       console.log("started recorder");

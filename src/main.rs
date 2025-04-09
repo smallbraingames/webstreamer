@@ -3,34 +3,56 @@ mod env;
 mod twitch;
 mod ws;
 use browser_capture::CapturedBrowser;
-use std::{thread, time::Duration};
-use tokio::{spawn, sync::mpsc};
-use tokio_tungstenite::tungstenite::Bytes;
+use futures::SinkExt;
+use std::time::Duration;
+use tokio::{join, spawn, sync::mpsc, time::sleep};
+use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
-use ws::get_ws_stream;
+use twitch::run_twitch;
+
+use ws::run_ws_stream;
 
 const WS_PORT: u16 = 8080;
 
 #[tokio::main]
 async fn main() {
     setup_tracing();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
 
     let (stream_tx, stream_rx) = mpsc::channel::<Bytes>(10);
-    spawn(async move {
-        get_ws_stream(WS_PORT, stream_tx).await;
+    let (ws_json_tx, mut ws_json_rx) = mpsc::channel::<String>(10);
+
+    let (twitch_server_handle, twitch_event_handle) = run_twitch(stream_rx, ws_json_tx).await;
+
+    let mut captured_browser = CapturedBrowser::new((1280, 720)).await;
+    let browser_handle = spawn(async move {
+        sleep(Duration::from_secs(1)).await;
+        captured_browser
+            .start_capture("https://wikipedia.com", WS_PORT)
+            .await;
+        loop {
+            sleep(Duration::from_secs(1)).await;
+        }
     });
 
-    let mut browser = CapturedBrowser::new((1280, 720)).await;
-    browser
-        .start_capture("https://www.dubs.toys", WS_PORT)
-        .await;
-
-    spawn(async move {
-        twitch::stream(stream_rx).await;
+    let (ws_handle, mut ws_rx) = run_ws_stream(WS_PORT, stream_tx).await;
+    let ws_forward_handle = spawn(async move {
+        loop {
+            let message = ws_json_rx.recv().await.unwrap();
+            ws_rx.send(Message::text(message)).await.unwrap();
+        }
     });
 
-    thread::sleep(Duration::from_secs(300));
+    let _results = join!(
+        browser_handle,
+        ws_handle,
+        ws_forward_handle,
+        twitch_server_handle,
+        twitch_event_handle
+    );
 }
 
 fn setup_tracing() {

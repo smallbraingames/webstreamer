@@ -91,7 +91,6 @@ window.addEventListener("message", async (event) => {
       console.log("got recorder", recorder);
 
       recorder.ondataavailable = async (e) => {
-        console.log("da");
         if (!e.data.size) return;
         const buffer = await e.data.arrayBuffer();
         client.send(buffer);
@@ -115,6 +114,10 @@ window.addEventListener("message", async (event) => {
 
       console.log(recorder.state);
       console.log("started recorder");
+
+      client.onmessage = async (e) => {
+        window.postMessage({ type: "EXTENSION", message: e }, "*");
+      };
     }
   }
 });

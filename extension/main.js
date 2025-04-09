@@ -116,6 +116,7 @@ window.addEventListener("message", async (event) => {
       console.log("started recorder");
 
       client.onmessage = async (e) => {
+        console.log(e);
         window.postMessage({ type: "EXTENSION", message: e }, "*");
       };
     }

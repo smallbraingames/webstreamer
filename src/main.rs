@@ -7,6 +7,7 @@ use std::{env, time::Duration};
 use tokio::{join, spawn, sync::mpsc, time::sleep};
 use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tracing::Level;
+use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use twitch::run_twitch;
 use ws::run_ws_stream;
@@ -26,20 +27,22 @@ async fn main() {
     let twitch_client_id = env::var("TWITCH_CLIENT_ID").unwrap();
     let twitch_rmtp_url = env::var("TWITCH_RMTP_URL").unwrap();
 
+    info!("running twitch streamer & listener");
     let (twitch_server_handle, twitch_event_handle) =
         run_twitch(&twitch_client_id, &twitch_rmtp_url, stream_rx, ws_json_tx).await;
 
+    let website = env::var("WEBSITE").unwrap();
+    info!("running headless browser at site {}", website);
     let mut captured_browser = CapturedBrowser::new((1280, 720)).await;
     let browser_handle = spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        captured_browser
-            .start_capture("https://wikipedia.com", WS_PORT)
-            .await;
+        captured_browser.start_capture(&website, WS_PORT).await;
         loop {
             sleep(Duration::from_secs(1)).await;
         }
     });
 
+    info!("running ws stream to extension");
     let (ws_handle, mut ws_rx) = run_ws_stream(WS_PORT, stream_tx).await;
     let ws_forward_handle = spawn(async move {
         loop {

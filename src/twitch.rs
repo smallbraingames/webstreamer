@@ -128,7 +128,7 @@ pub async fn run_stream(twitch_rmtp_url: &str, mut stream_rx: Receiver<Bytes>) {
             "44100",
             "-f",
             "flv",
-            &twitch_rmtp_url,
+            twitch_rmtp_url,
         ])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())

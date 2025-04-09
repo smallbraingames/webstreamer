@@ -117,8 +117,7 @@ impl TwitchServer {
                     let is_cache_valid = user_cache
                         .get(&id)
                         .map(|(_, cached_time)| {
-                            now.duration_since(*cached_time)
-                                .unwrap_or_else(|_| cache_timeout)
+                            now.duration_since(*cached_time).unwrap_or(cache_timeout)
                                 < cache_timeout
                         })
                         .unwrap_or(false);
@@ -133,9 +132,9 @@ impl TwitchServer {
                         };
                         info!("{}: {}", log_message, id);
 
-                        let mut token = token.lock().await;
+                        let token = token.lock().await;
                         let user = client
-                            .get_user_from_id(&id, &mut *token)
+                            .get_user_from_id(&id, &*token)
                             .await
                             .unwrap()
                             .unwrap();

@@ -25,7 +25,7 @@ impl CapturedBrowser {
                     "--disable-extensions-except={}",
                     extension_path.to_str().unwrap()
                 ))
-                //.arg("--headless=new")
+                .arg("--headless=new")
                 .arg(format!("--allowlisted-extension-id={}", extension_id))
                 .disable_default_args()
                 .window_size(window_size.0, window_size.1)

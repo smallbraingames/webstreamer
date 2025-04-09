@@ -3,9 +3,11 @@ use event_ws::EventWebsocketClient;
 use reqwest::Client;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
     sync::Arc,
+    time::SystemTime,
 };
 use tokio::{
     join, spawn,
@@ -21,8 +23,10 @@ use tracing::{info, warn};
 use twitch_api::{
     HelixClient, TWITCH_EVENTSUB_WEBSOCKET_URL,
     client::ClientDefault,
-    helix::Scope,
+    eventsub::{Event, Message, Payload},
+    helix::{Scope, users::User},
     twitch_oauth2::{DeviceUserTokenBuilder, TwitchToken, UserToken},
+    types::UserId,
 };
 
 pub async fn run_twitch(
@@ -62,6 +66,9 @@ impl TwitchServer {
     }
 
     pub async fn run_event_listener(&self, ws_tx: Sender<String>) {
+        type CachedUser = (User, SystemTime);
+
+        let user_cache = Arc::new(Mutex::new(HashMap::<UserId, CachedUser>::new()));
         let ws = EventWebsocketClient {
             session_id: None,
             token: self.user_token.clone(),
@@ -84,14 +91,64 @@ impl TwitchServer {
         };
         let ws = ws.run(|e, ts| {
             let ws_tx = ws_tx.clone();
+            let client = self.helix_client.clone();
+            let token = self.user_token.clone();
+            let user_cache = user_cache.clone();
             async move {
                 info!("ws event: {:?}, timestamp: {:?}", e, ts);
                 let message = json!({
-                    "type": "twitch",
+                    "type": "twitch-event",
                     "event": e,
                     "timestamp": ts
                 });
                 ws_tx.send(message.to_string()).await.unwrap();
+                if let Event::ChannelChatMessageV1(Payload {
+                    message: Message::Notification(payload),
+                    ..
+                }) = e
+                {
+                    info!("message from user_id: {}", payload.chatter_user_id);
+                    let id = payload.chatter_user_id;
+                    let mut user_cache = user_cache.lock().await;
+
+                    let now = SystemTime::now();
+                    let cache_timeout = std::time::Duration::from_secs(30 * 60); // 30 minutes
+
+                    let is_cache_valid = user_cache
+                        .get(&id)
+                        .map(|(_, cached_time)| {
+                            now.duration_since(*cached_time).unwrap_or(cache_timeout)
+                                < cache_timeout
+                        })
+                        .unwrap_or(false);
+
+                    let user = if is_cache_valid {
+                        user_cache.get(&id).unwrap().0.clone()
+                    } else {
+                        let log_message = if user_cache.contains_key(&id) {
+                            "cache expired for user_id"
+                        } else {
+                            "fetching user info"
+                        };
+                        info!("{}: {}", log_message, id);
+
+                        let token = token.lock().await;
+                        let user = client
+                            .get_user_from_id(&id, &*token)
+                            .await
+                            .unwrap()
+                            .unwrap();
+
+                        user_cache.insert(id.clone(), (user.clone(), now));
+                        user
+                    };
+
+                    let message = json!({
+                        "type": "twitch-user",
+                        "user": user,
+                    });
+                    ws_tx.send(message.to_string()).await.unwrap();
+                }
             }
         });
         join!(ws, refresh_token);
@@ -136,7 +193,6 @@ pub async fn run_stream(twitch_rmtp_url: &str, mut stream_rx: Receiver<Bytes>) {
         .unwrap();
 
     let mut stdin = ffmpeg.stdin.take().unwrap();
-
     let stderr = ffmpeg.stderr.take().unwrap();
 
     spawn(async move {

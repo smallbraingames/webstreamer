@@ -47,7 +47,6 @@ window.addEventListener("message", async (event) => {
 
       const streamIdPromise = new Promise((resolve) => {
         const messageListener = (message) => {
-          console.log("got message in strema id promise listenenr", message);
           if (message.command === "stream-id") {
             chrome.runtime.onMessage.removeListener(messageListener);
             resolve(message.streamId);
@@ -61,7 +60,6 @@ window.addEventListener("message", async (event) => {
       });
 
       const streamId = await streamIdPromise;
-      console.log("got stream id", streamId);
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -80,15 +78,11 @@ window.addEventListener("message", async (event) => {
         },
       });
 
-      console.log("got stream", stream);
-
       const recorder = new MediaRecorder(stream, {
         audioBitsPerSecond: 128_000,
         videoBitsPerSecond: 2_500_000,
         mimeType: "video/webm",
       });
-
-      console.log("got recorder", recorder);
 
       recorder.ondataavailable = async (e) => {
         if (!e.data.size) return;
@@ -116,7 +110,8 @@ window.addEventListener("message", async (event) => {
       console.log("started recorder");
 
       client.onmessage = async (e) => {
-        window.postMessage({ type: "EXTENSION", message: e }, "*");
+        console.log(e);
+        window.postMessage({ type: "EXTENSION", message: e.data }, "*");
       };
     }
   }

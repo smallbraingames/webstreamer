@@ -46,7 +46,8 @@ async fn main() {
     );
     let mut captured_browser = CapturedBrowser::new((width, height), headless).await;
     let browser_handle = spawn(async move {
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
+        info!("starting browser capture");
         captured_browser.start_capture(&website, WS_PORT).await;
         loop {
             sleep(Duration::from_secs(1)).await;

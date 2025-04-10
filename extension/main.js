@@ -74,6 +74,12 @@ window.addEventListener("message", async (event) => {
           mandatory: {
             chromeMediaSource: "tab",
             chromeMediaSourceId: streamId,
+            minFrameRate: 60,
+            maxFrameRate: 60,
+            minWidth: 1280,
+            minHeight: 720,
+            maxWidth: 1280,
+            maxHeight: 720,
           },
         },
       });
@@ -104,7 +110,7 @@ window.addEventListener("message", async (event) => {
         if (client.readyState === WebSocket.OPEN) client.close();
       };
 
-      recorder.start(41);
+      recorder.start(21);
 
       console.log(recorder.state);
       console.log("started recorder");

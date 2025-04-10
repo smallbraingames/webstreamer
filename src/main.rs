@@ -36,9 +36,15 @@ async fn main() {
     let (width, height) = dimensions.split_once('x').unwrap();
     let width = width.parse().unwrap();
     let height = height.parse().unwrap();
-
-    info!("running headless browser at site {}", website);
-    let mut captured_browser = CapturedBrowser::new((width, height)).await;
+    let headless = env::var("HEADLESS")
+        .unwrap_or("true".to_string())
+        .parse()
+        .unwrap();
+    info!(
+        "running headless browser at site {}, dimensions: {}, headless: {}",
+        website, dimensions, headless
+    );
+    let mut captured_browser = CapturedBrowser::new((width, height), headless).await;
     let browser_handle = spawn(async move {
         sleep(Duration::from_secs(1)).await;
         captured_browser.start_capture(&website, WS_PORT).await;

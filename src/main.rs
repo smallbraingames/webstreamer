@@ -32,10 +32,22 @@ async fn main() {
         run_twitch(&twitch_client_id, &twitch_rmtp_url, stream_rx, ws_json_tx).await;
 
     let website = env::var("WEBSITE").unwrap();
-    info!("running headless browser at site {}", website);
-    let mut captured_browser = CapturedBrowser::new((1280, 720)).await;
+    let dimensions = env::var("DIMENSIONS").unwrap();
+    let (width, height) = dimensions.split_once('x').unwrap();
+    let width = width.parse().unwrap();
+    let height = height.parse().unwrap();
+    let headless = env::var("HEADLESS")
+        .unwrap_or("true".to_string())
+        .parse()
+        .unwrap();
+    info!(
+        "running headless browser at site {}, dimensions: {}, headless: {}",
+        website, dimensions, headless
+    );
+    let mut captured_browser = CapturedBrowser::new((width, height), headless).await;
     let browser_handle = spawn(async move {
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
+        info!("starting browser capture");
         captured_browser.start_capture(&website, WS_PORT).await;
         loop {
             sleep(Duration::from_secs(1)).await;

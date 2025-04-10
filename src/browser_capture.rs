@@ -10,7 +10,7 @@ pub struct CapturedBrowser {
 }
 
 impl CapturedBrowser {
-    pub async fn new(window_size: (u32, u32)) -> Self {
+    pub async fn new(window_size: (u32, u32), headless: bool) -> Self {
         let extension_path = Path::new("./extension").canonicalize().unwrap();
         let extension_id = include_str!("../extension/id.txt").trim();
         let (browser, mut handler) = Browser::launch(
@@ -25,7 +25,7 @@ impl CapturedBrowser {
                     "--disable-extensions-except={}",
                     extension_path.to_str().unwrap()
                 ))
-                .arg("--headless=new")
+                .arg(if headless { "--headless=new" } else { "" })
                 .arg(format!("--allowlisted-extension-id={}", extension_id))
                 .disable_default_args()
                 .window_size(window_size.0, window_size.1)

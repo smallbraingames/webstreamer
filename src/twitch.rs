@@ -25,20 +25,21 @@ use twitch_api::{
     client::ClientDefault,
     eventsub::{Event, Message, Payload},
     helix::{Scope, users::User},
-    twitch_oauth2::{DeviceUserTokenBuilder, TwitchToken, UserToken},
+    twitch_oauth2::{ClientSecret, DeviceUserTokenBuilder, TwitchToken, UserToken},
     types::UserId,
 };
 
 pub async fn run_twitch(
     twitch_client_id: &str,
-    twitch_rmtp_url: &str,
+    twitch_client_secret: &str,
+    twitch_rtmp_url: &str,
     stream_rx: Receiver<Bytes>,
     ws_tx: Sender<String>,
 ) -> (JoinHandle<()>, JoinHandle<()>) {
-    let server = TwitchServer::new(twitch_client_id).await;
+    let server = TwitchServer::new(twitch_client_id, twitch_client_secret).await;
     let event_listener = spawn(async move { server.run_event_listener(ws_tx).await });
-    let twitch_rmtp_url = twitch_rmtp_url.to_string();
-    let stream = spawn(async move { run_stream(&twitch_rmtp_url, stream_rx).await });
+    let twitch_rtmp_url = twitch_rtmp_url.to_string();
+    let stream = spawn(async move { run_stream(&twitch_rtmp_url, stream_rx).await });
     (event_listener, stream)
 }
 
@@ -48,7 +49,7 @@ struct TwitchServer {
 }
 
 impl TwitchServer {
-    pub async fn new(twitch_client_id: &str) -> Self {
+    pub async fn new(twitch_client_id: &str, twitch_client_secret: &str) -> Self {
         let client: HelixClient<reqwest::Client> = twitch_api::HelixClient::with_client(
             ClientDefault::default_client_with_name(Some("webstreamer".parse().unwrap())).unwrap(),
         );
@@ -58,7 +59,8 @@ impl TwitchServer {
         );
         let code = builder.start(&client).await.unwrap();
         info!("authenticate twitch: {}", code.verification_uri);
-        let user_token = builder.wait_for_code(&client, sleep).await.unwrap();
+        let mut user_token = builder.wait_for_code(&client, sleep).await.unwrap();
+        user_token.set_secret(Some(ClientSecret::new(twitch_client_secret.to_string())));
         TwitchServer {
             user_token: Arc::new(Mutex::new(user_token)),
             helix_client: client,
@@ -155,42 +157,32 @@ impl TwitchServer {
     }
 }
 
-pub async fn run_stream(twitch_rmtp_url: &str, mut stream_rx: Receiver<Bytes>) {
+pub async fn run_stream(twitch_rtmp_url: &str, mut stream_rx: Receiver<Bytes>) {
     info!("starting ffmpeg process");
     let mut ffmpeg = Command::new("ffmpeg")
         .args([
             "-i",
             "-",
+            "-vsync",
+            "cfr",
             "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
+            "h264_nvenc",
+            "-rc",
+            "cbr",
             "-r",
             "60",
             "-s",
             "1280x720",
             "-b:v",
-            "3500k",
+            "4500k",
             "-maxrate",
-            "3500k",
+            "4500k",
             "-bufsize",
-            "7000k",
+            "9000k",
             "-pix_fmt",
             "yuv420p",
-            "-g",
-            "120",
             "-profile:v",
             "high",
-            "-x264opts",
-            "rc-lookahead=20:ref=2:bframes=2:weightp=1:me=hex:subme=4:aq-mode=2",
-            "-qmin",
-            "18",
-            "-qmax",
-            "38",
-            "-aq-strength",
-            "0.9",
             "-c:a",
             "aac",
             "-b:a",
@@ -201,7 +193,7 @@ pub async fn run_stream(twitch_rmtp_url: &str, mut stream_rx: Receiver<Bytes>) {
             "2",
             "-f",
             "flv",
-            twitch_rmtp_url,
+            twitch_rtmp_url,
         ])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())

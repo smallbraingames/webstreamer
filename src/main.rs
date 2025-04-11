@@ -25,11 +25,18 @@ async fn main() {
     let (ws_json_tx, mut ws_json_rx) = mpsc::channel::<String>(10);
 
     let twitch_client_id = env::var("TWITCH_CLIENT_ID").unwrap();
-    let twitch_rmtp_url = env::var("TWITCH_RMTP_URL").unwrap();
+    let twitch_client_secret = env::var("TWITCH_CLIENT_SECRET").unwrap();
+    let twitch_rtmp_url = env::var("TWITCH_RTMP_URL").unwrap();
 
     info!("running twitch streamer & listener");
-    let (twitch_server_handle, twitch_event_handle) =
-        run_twitch(&twitch_client_id, &twitch_rmtp_url, stream_rx, ws_json_tx).await;
+    let (twitch_server_handle, twitch_event_handle) = run_twitch(
+        &twitch_client_id,
+        &twitch_client_secret,
+        &twitch_rtmp_url,
+        stream_rx,
+        ws_json_tx,
+    )
+    .await;
 
     let website = env::var("WEBSITE").unwrap();
     let dimensions = env::var("DIMENSIONS").unwrap();

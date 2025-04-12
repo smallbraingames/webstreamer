@@ -42,20 +42,23 @@ impl EventWebsocketClient {
     where
         Fut: std::future::Future<Output = ()>,
     {
-        let mut s = self.connect().await;
-        while let Some(msg) = futures::StreamExt::next(&mut s).await {
-            let msg = match msg {
-                Err(tungstenite::Error::Protocol(
-                    tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
-                )) => {
-                    warn!(
-                        "connection was sent an unexpected frame or was reset, reestablishing it"
-                    );
-                    continue;
-                }
-                _ => msg.unwrap(),
-            };
-            self.process_message(msg, &mut event_fn).await;
+        loop {
+            log::info!("connecting to twitch");
+            let mut s = self.connect().await;
+            while let Some(msg) = futures::StreamExt::next(&mut s).await {
+                let msg = match msg {
+                    Err(tungstenite::Error::Protocol(
+                        tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
+                    )) => {
+                        warn!(
+                            "connection was sent an unexpected frame or was reset, reestablishing it"
+                        );
+                        continue;
+                    }
+                    _ => msg.unwrap(),
+                };
+                self.process_message(msg, &mut event_fn).await;
+            }
         }
     }
 
@@ -90,7 +93,10 @@ impl EventWebsocketClient {
                 } => (),
                 _ => (),
             },
-            tungstenite::Message::Close(_) => todo!(),
+            tungstenite::Message::Close(_) => {
+                warn!("websocket connection closed, attempting to reconnect");
+                return;
+            }
             _ => (),
         }
     }
